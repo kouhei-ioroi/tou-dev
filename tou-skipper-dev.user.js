@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TOU-Skipper
 // @namespace    https://www.ioroi.org
-// @version      1.2
+// @version      1.3
 // @description  レポートらくらくツール
 // @author       Kouhei Ioroi
 // @match        https://room.internet.ac.jp/
@@ -14,35 +14,37 @@ var updatecounter = 0;
 var 回答 = {};
 (function() {
     'use strict';
-    toumsg("初期化...");
-    setTimeout(()=>{
-        toumsg("DBチェック...");
-        if(localStorage.getItem("授業回答情報")==null){
-            localStorage.setItem("授業回答情報",JSON.stringify({}));//DBの新規構築
-            toumsg("新規構築を行いました");
-        }else{
-            回答 = JSON.parse(localStorage.getItem("授業回答情報"));//DBを接続
-            toumsg("既存接続を行いました");
-        }
-        toumsg("回答を受信・統合します...");
-        回答受信();
-    },3000)
+    setTimeout(DB構築,3000);//エラー防止の為ページ読み込み後3秒待ってからDBチェック
     window.addEventListener("hashchange", ページ移動判定, false);//ハッシュ移動先を検知するイベントを設置
-    toumsg("ハッシュイベント設置");
     ページ移動判定();
 })();
-function 再生終了(){
-    console.log("再生終了");
-    let 次講 = touq(".active-lecture").closest(".lecture-container").nextElementSibling;
-    if(次講 != null){
-        次講.querySelector("a").click();//現在再生中の親親要素の隣のaタグをクリックして再生開始
+function DB構築(){
+    if(localStorage.getItem("授業回答情報")==null){
+        localStorage.setItem("授業回答情報",JSON.stringify({}));//DBの新規構築
+        toumsg("新規DB構築を行いました");
     }else{
-        let 次回 = touq(".active-section").closest(".section-container").nextElementSibling;
-        次回.querySelector("p").click();//次の単元を選択
-        setTimeout(()=>{touq(".lecture").click();},1000);//1秒後先頭のレクチャーを再生開始
-
+        回答 = JSON.parse(localStorage.getItem("授業回答情報"));//DBを接続
+        toumsg("既存DB接続を行いました");
     }
+    回答受信();
+}
 
+function 再生終了(){
+    const 次講 = touq(".active-lecture").closest(".lecture-container").nextElementSibling;
+    const 次回 = touq(".active-section").closest(".section-container").nextElementSibling;
+    document.querySelector(".active-section").closest(".section-container").nextElementSibling
+    if(次講 != null){
+        toumsg("次の授業を再生します");
+        次講.querySelector("a").click();
+    }else if(次回.querySelector("div.lock-overlay") == null){
+        toumsg("次の単元を再生します");
+        次回.querySelector("p").click();
+        setTimeout(()=>{touq(".lecture").click();},1000);
+    }else{
+        toumsg("次回の単元は選択できません");
+        alert("現時点で再生できる最終単元に到達しました。\nトップページに戻ります。");
+        location.href = "https://room.internet.ac.jp/#/";
+    }
 }
 function 記述貼り付け(){
     var 入力枠 = touq("#tou-exam-report-textarea");//レポート入力エリア
@@ -55,26 +57,18 @@ function 記述貼り付け(){
     }
 }
 function 動画開始(){
-    //ToDo 機能強化
     const video_tag = touq("video");//映像要素を取得
     if(video_tag != null){//要素が存在するならば
         if(video_tag.id != "faceMonitor"){//要素が顔確認画面でない場合
             toumsg("再生開始")
-            let volumes
-            if(localStorage.getItem("音量設定") == null){
-                volumes = 0.5;
-            }else{
-                volumes = Number(localStorage.getItem("音量設定"));
-            }
             video_tag.play();//動画を再生開始
-            video_tag.volume = volumes;//音量を調整する
-            video_tag.onended = ()=>{setTimeout(再生終了(),3000)};//再生終了時に発火する再生終了イベントを設置
+            video_tag.onended = ()=>{setTimeout(再生終了,3000)};//再生終了時に発火する再生終了イベントを設置
             video_tag.ontimeupdate = ()=>{//動画が再生しつづけると
-                var 現在時間 = video_tag.currentTime;
-                var 動画時間 = video_tag.duration;
-                var 進捗率 = Math.trunc((現在時間 / 動画時間) * 100);
-                var 残り時間 = Math.trunc(動画時間 - 現在時間);
-                var ETA = 0;
+                let 現在時間 = video_tag.currentTime;
+                let 動画時間 = video_tag.duration;
+                let 進捗率 = Math.trunc((現在時間 / 動画時間) * 100);
+                let 残り時間 = Math.trunc(動画時間 - 現在時間);
+                let ETA = 0;
                 if (残り時間 < 60){//動画の残り長さが100秒未満ならば
                     ETA = "0:"+ ("00" + (Math.trunc(残り時間))).slice(-2);
                 }else{
@@ -82,17 +76,37 @@ function 動画開始(){
                 }
                 document.title = "完了率:"+ 進捗率 + "%/ETA:" + ETA;
             }//再生中は再生完了率を更新して表示する
-            video_tag.onvolumechange = ()=>{
-                localStorage.setItem("音量設定",video_tag.volume);
-            }
-            setTimeout(()=>{touq(".closeBtn").click()},5000);
         }
     }else if(touq("#root > div > div > div.spacer > div > div > div > p") != null){
         if(touq("#root > div > div > div.spacer > div > div > div > p").innerText == "カメラを許可してください"){
             setTimeout(()=>{location.reload(true);},3000);
         }
     }
+    else{console.log("定義外の動画再生ファンクションエラー")}
 }
+
+function 授業処理(){
+    const video_tag = touq("video");
+    const current_lecture_src = touq("a.active-lecture").querySelector("img").src;
+    const current_lecture_id = current_lecture_src.slice(current_lecture_src.lastIndexOf("/")+1);
+    switch(current_lecture_id){
+        case "digitalText.png"://参考資料等
+            toumsg("種類:参考資料等");
+            setTimeout(再生終了,5000);
+            break;
+        case "video.png"://映像授業
+            toumsg("種類:映像授業");
+            動画開始();
+            break;
+        case "quiz.png"://レポート
+            toumsg("種類:レポート");
+            break;
+        default:
+            toumsg("種類:未定義");
+            break;
+    }
+}
+
 function ページ移動判定(){
     if(touq(".loading-outer").style.display != "none"){//画面が読み込み待ちの場合
         loadcounter = 0;
@@ -151,7 +165,6 @@ function ページ移動判定(){
                                         if(x.value.length == 0){
                                             x.value = keys;
                                         }
-                                        強制キーイベント(x);
                                         break;
                                     default:
                                         toumsg("ケースが未定義の問題が検出されました。該当の問題は自動入力ができません。");
@@ -179,7 +192,7 @@ function ページ移動判定(){
         }
         else if (new RegExp("^#/courses/[0-9]{4}/sections/[0-9]{5}/lectures/[0-9]{6}$").test(location.hash)){//授業ページ
             ロゴ書き換え(false);
-            動画開始();
+            授業処理();
             進捗率取得();
         }else if (new RegExp("^#/courses/[0-9]{4}$").test(location.hash)){//授業選択ページ
             ロゴ書き換え(false);
@@ -301,32 +314,8 @@ function 進捗率更新待機(){
     }else{
         localStorage.removeItem("progress_update_count");
         localStorage.removeItem("progress_updater");
-        toumsg("更新が完了したのでリロードします");
         location.reload(true);
     }
-}
-function 強制キーイベント(要素) {
-    const keyboardEvent = new KeyboardEvent('keydown', {
-        code: 'Enter',
-        key: 'Enter',
-        charCode: 13,
-        keyCode: 13,
-        view: window,
-        bubbles: true
-    });
-    var initMethod = typeof keyboardEvent.initKeyboardEvent !== 'undefined' ? 'initKeyboardEvent' : 'initKeyEvent';
-    keyboardEvent[initMethod]('keydown', // event type : keydown, keyup, keypress
-                              true, // bubbles
-                              true, // cancelable
-                              window, // viewArg: should be window
-                              false, // ctrlKeyArg
-                              false, // altKeyArg
-                              false, // shiftKeyArg
-                              false, // metaKeyArg
-                              13, // keyCodeArg : unsigned long the virtual key code, else 0
-                              13 // charCodeArgs : unsigned long the Unicode character associated with the depressed key, else 0
-                             );
-    要素.dispatchEvent(keyboardEvent);
 }
 function toumsg(msg){
     console.log("TOU-Skipper:"+ msg);
